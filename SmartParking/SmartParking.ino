@@ -1,15 +1,25 @@
 /*
   ============================================================
-  SMART PARKING - ESP32 38 PIN
+  SMART PARKING - ESP32 38 PIN  (V11)
   ============================================================
-    Config.h        - hang so, cau hinh pin, struct CardInfo
-    Utils.h/.cpp    - ham tien ich chuoi
-    Sensors.h/.cpp  - cam bien IR + sieu am
-    Gate.h/.cpp     - servo dieu khien cong
+  Cau truc project:
+    Config.h          - hang so, chan, struct CardInfo / UserAccount
+    Utils.h/.cpp      - ham tien ich chuoi
+    Sensors.h/.cpp    - cam bien IR + sieu am
+    Gate.h/.cpp       - servo dieu khien cong
     LCDManager.h/.cpp - LCD I2C (scan + hien thi)
-    CardDB.h/.cpp   - quan ly the / bien so / NVS
-    RFIDHandler.h/.cpp - quet the RFID RC522
-    WebUI.h/.cpp    - WiFi AP + trang web quan ly
+    CardDB.h/.cpp     - quan ly the / bien so / so du / NVS
+    UserDB.h/.cpp     - quan ly tai khoan web / NVS
+    RFIDHandler.h/.cpp- quet the RFID, phan luong vao/ra + tinh phi
+    WebUI.h/.cpp      - WiFi AP, trang web, phan quyen admin/user
+
+  Tinh nang chinh (v11):
+    - Luot vao: BAT BUOC co xe <= 5.0 cm (sieu am)
+    - Luot ra : khong can sieu am, tru EXIT_FEE (20.000 VND)
+    - Khong du so du -> tu choi mo cong ra
+    - Web phan quyen: admin quan ly toan bo, user chi xem
+    - Admin nap tien, xoa the, tao/xoa tai khoan user
+    - User xem ban do bai xe + xe/the cua chinh minh
   ============================================================
 */
 
@@ -20,11 +30,12 @@
 #include "Gate.h"
 #include "LCDManager.h"
 #include "CardDB.h"
+#include "UserDB.h"
 #include "RFIDHandler.h"
 #include "WebUI.h"
 
 // ============================================================
-// TIMER DOC CAM BIEN / LCD / RFID
+// TIMER LOOP
 // ============================================================
 static unsigned long lastSensorRead = 0;
 static unsigned long lastRFIDCheck  = 0;
@@ -50,8 +61,9 @@ void setup() {
   // RFID RC522
   setupRFID();
 
-  // NVS: nap du lieu da luu
+  // NVS: nap du lieu cu
   loadCardsFromNVS();
+  loadUsersFromNVS();
   readAllSlots();
   lastDistance = readDistanceCM();
 
@@ -63,20 +75,19 @@ void setup() {
   updateCardLCD();
   updateSlotLCD();
 
-  Serial.println();
-  Serial.println("=== SMART PARKING READY ===");
-  Serial.print("AP SSID: "); Serial.println(AP_SSID);
-  Serial.print("AP PASS: "); Serial.println(AP_PASS);
-  Serial.print("IP: ");      Serial.println(apIP);
-  Serial.print("Da nap ");   Serial.print(cardCount);
-  Serial.println(" the.");
+  Serial.println("\n=== SMART PARKING READY ===");
+  Serial.print("AP SSID: ");    Serial.println(AP_SSID);
+  Serial.print("AP PASS: ");    Serial.println(AP_PASS);
+  Serial.print("IP: ");         Serial.println(apIP);
+  Serial.print("Da nap ");      Serial.print(cardCount);   Serial.println(" the.");
+  Serial.print("Da nap ");      Serial.print(userCount);   Serial.println(" tai khoan user.");
+  Serial.print("Phi moi lan ra: "); Serial.println(EXIT_FEE);
   Serial.print("LCD o trong: ");
   Serial.println(lcdSlotAddr ? hexAddr(lcdSlotAddr) : "khong co");
   Serial.print("LCD bien so: ");
   Serial.println(lcdCardAddr ? hexAddr(lcdCardAddr) : "khong co");
-  Serial.print("Nguong quet the theo sieu am: <= ");
-  Serial.print(RFID_ALLOW_CM, 1);
-  Serial.println(" cm");
+  Serial.print("Nguong quet the luc vao / the moi: <= ");
+  Serial.print(RFID_ALLOW_CM, 1); Serial.println(" cm");
 }
 
 // ============================================================
@@ -93,7 +104,7 @@ void loop() {
     lastDistance = readDistanceCM();
   }
 
-  // Quet the RFID 80 ms / lan (muot hon)
+  // Quet RFID 80 ms / lan
   if (millis() - lastRFIDCheck > 80) {
     lastRFIDCheck = millis();
     processRFID();
@@ -109,7 +120,6 @@ void loop() {
   // Tu dong dong cong sau GATE_OPEN_MS
   if (gateIsOpen && millis() - gateOpenAt >= GATE_OPEN_MS) {
     closeGate();
-    setCardNotice(lastPlate != "" ? lastPlate : "San sang",
-                  "Cong da dong", 1500);
+    setCardNotice(lastPlate != "" ? lastPlate : "San sang", "Cong da dong", 1500);
   }
 }

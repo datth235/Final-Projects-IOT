@@ -13,13 +13,13 @@ void setupGate() {
   closeGate();
 }
 
-void closeGate() {
-  gateServo.write(SERVO_CLOSE_ANGLE);
-  gateIsOpen = false;
-}
-
 void openGate() {
   gateServo.write(SERVO_OPEN_ANGLE);
   gateIsOpen = true;
   gateOpenAt = millis();
+}
+
+void closeGate() {
+  gateServo.write(SERVO_CLOSE_ANGLE);
+  gateIsOpen = false;
 }

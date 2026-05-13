@@ -1,37 +1,30 @@
 #include "LCDManager.h"
 #include "Config.h"
 #include "Utils.h"
-#include "Sensors.h"   // freeCount, slotOccupied
-#include "Gate.h"      // gateIsOpen
+#include "Sensors.h"
+#include "Gate.h"
 #include <Wire.h>
 
-// ============================================================
-// BIEN TOAN CUC
-// ============================================================
 LiquidCrystal_I2C* lcdCard = nullptr;
 LiquidCrystal_I2C* lcdSlot = nullptr;
-
 uint8_t lcdCardAddr = 0;
 uint8_t lcdSlotAddr = 0;
 
 static uint8_t i2cFound[MAX_I2C_FOUND];
 static int     i2cFoundCount = 0;
 
-// Thong bao tam thoi tren LCD bien so
-static String        cardNoticeLine1  = "";
-static String        cardNoticeLine2  = "";
-static unsigned long cardNoticeUntil  = 0;
+static String        cardNoticeLine1 = "";
+static String        cardNoticeLine2 = "";
+static unsigned long cardNoticeUntil = 0;
+static unsigned long lastPageFlip    = 0;
+static bool          lcdPage         = false;
 
-static unsigned long lastPageFlip = 0;
-static bool          lcdPage      = false;
-
-// Bien ngoai (dinh nghia trong SmartParking.ino)
-extern String        pendingUID;
-extern String        lastPlate;
-extern float         lastDistance;
+// Bien ngoai tu SmartParking.ino
+extern String pendingUID;
+extern String lastPlate;
 
 // ============================================================
-// I2C SCAN
+// I2C
 // ============================================================
 static bool isI2CAlive(uint8_t addr) {
   Wire.beginTransmission(addr);
@@ -45,8 +38,7 @@ static bool isLikelyLcdBackpack(uint8_t addr) {
 
 static void scanI2C() {
   i2cFoundCount = 0;
-  Serial.println();
-  Serial.println("=== I2C SCAN START ===");
+  Serial.println("\n=== I2C SCAN START ===");
 
   for (uint8_t addr = 1; addr < 127; addr++) {
     Wire.beginTransmission(addr);
@@ -58,17 +50,12 @@ static void scanI2C() {
     }
   }
 
-  if (i2cFoundCount == 0)
-    Serial.println("Khong tim thay thiet bi I2C nao.");
-
+  if (i2cFoundCount == 0) Serial.println("Khong tim thay thiet bi I2C nao.");
   Serial.println("=== I2C SCAN END ===");
 }
 
-static uint8_t chooseLCDAddress(uint8_t preferredAddr,
-                                 uint8_t excludeAddr) {
-  if (preferredAddr != 0 &&
-      preferredAddr != excludeAddr &&
-      isI2CAlive(preferredAddr))
+static uint8_t chooseLCDAddress(uint8_t preferredAddr, uint8_t excludeAddr) {
+  if (preferredAddr != 0 && preferredAddr != excludeAddr && isI2CAlive(preferredAddr))
     return preferredAddr;
 
   for (int i = 0; i < i2cFoundCount; i++) {
@@ -77,73 +64,57 @@ static uint8_t chooseLCDAddress(uint8_t preferredAddr,
     if (isLikelyLcdBackpack(addr)) return addr;
   }
 
-  for (int i = 0; i < i2cFoundCount; i++) {
+  for (int i = 0; i < i2cFoundCount; i++)
     if (i2cFound[i] != excludeAddr) return i2cFound[i];
-  }
 
   return 0;
 }
 
-static void initOneLCD(LiquidCrystal_I2C*& lcd,
-                        uint8_t addr,
-                        const char* label) {
+static void initOneLCD(LiquidCrystal_I2C*& lcd, uint8_t addr, const char* label) {
   if (addr == 0) return;
-
   lcd = new LiquidCrystal_I2C(addr, LCD_COLS, LCD_ROWS);
   lcd->init();
   lcd->backlight();
   lcd->clear();
-
   lcd->setCursor(0, 0);
   lcd->print(fit16(String(label) + " " + hexAddr(addr)));
   lcd->setCursor(0, 1);
   lcd->print(fit16("Dang khoi dong"));
-
   Serial.print(label);
   Serial.print(" LCD da gan tai ");
   Serial.println(hexAddr(addr));
 }
 
 // ============================================================
-// PUBLIC API
+// PUBLIC
 // ============================================================
 void setupLCDs() {
   scanI2C();
-
   lcdSlotAddr = chooseLCDAddress(SLOT_LCD_PREFERRED_ADDR, 0);
   lcdCardAddr = chooseLCDAddress(CARD_LCD_PREFERRED_ADDR, lcdSlotAddr);
 
   if (lcdSlotAddr == 0 && lcdCardAddr == 0) {
-    Serial.println("Khong gan duoc LCD nao.");
-    return;
+    Serial.println("Khong gan duoc LCD nao."); return;
   }
 
   if (lcdSlotAddr != 0) initOneLCD(lcdSlot, lcdSlotAddr, "LCD OTRONG");
   if (lcdCardAddr != 0) initOneLCD(lcdCard, lcdCardAddr, "LCD BIENSO");
-
   if (lcdSlotAddr == 0) Serial.println("Khong tim thay LCD hien o trong.");
   if (lcdCardAddr == 0) Serial.println("Khong tim thay LCD hien bien so.");
 }
 
-void lcdPrint2Lines(LiquidCrystal_I2C* lcd,
-                    const String& line1,
-                    const String& line2) {
+void lcdPrint2Lines(LiquidCrystal_I2C* lcd, const String& line1, const String& line2) {
   if (lcd == nullptr) return;
-  lcd->setCursor(0, 0);
-  lcd->print(fit16(line1));
-  lcd->setCursor(0, 1);
-  lcd->print(fit16(line2));
+  lcd->setCursor(0, 0); lcd->print(fit16(line1));
+  lcd->setCursor(0, 1); lcd->print(fit16(line2));
 }
 
-void setCardNotice(const String& line1,
-                   const String& line2,
-                   unsigned long durationMs) {
+void setCardNotice(const String& line1, const String& line2, unsigned long durationMs) {
   cardNoticeLine1 = line1;
   cardNoticeLine2 = line2;
   cardNoticeUntil = millis() + durationMs;
 }
 
-// ---- Ban do 5 o lien tiep ----
 static String buildMapLine(int startIdx, int endIdx) {
   String text = "";
   for (int i = startIdx; i <= endIdx; i++) {
@@ -156,12 +127,10 @@ static String buildMapLine(int startIdx, int endIdx) {
 
 void updateSlotLCD() {
   if (lcdSlot == nullptr) return;
-
   if (millis() - lastPageFlip > 2000) {
     lastPageFlip = millis();
     lcdPage = !lcdPage;
   }
-
   String line1 = "Trong:" + String(freeCount) + "/10";
   String line2 = !lcdPage ? buildMapLine(0, 4) : buildMapLine(5, 9);
   lcdPrint2Lines(lcdSlot, line1, line2);
@@ -169,10 +138,7 @@ void updateSlotLCD() {
 
 void updateCardLCD() {
   if (lcdCard == nullptr) return;
-
-  // Hien thong bao tam thoi neu con hieu luc
-  if (cardNoticeUntil != 0 &&
-      (long)(cardNoticeUntil - millis()) > 0) {
+  if (cardNoticeUntil != 0 && (long)(cardNoticeUntil - millis()) > 0) {
     lcdPrint2Lines(lcdCard, cardNoticeLine1, cardNoticeLine2);
     return;
   }
@@ -187,11 +153,5 @@ void updateCardLCD() {
   }
 
   String line2 = gateIsOpen ? "Cong: MO" : "Cong: DONG";
-  if (lastDistance > 0.0) {
-    line2 += " ";
-    line2 += String(lastDistance, 1);
-    line2 += "cm";
-  }
-
   lcdPrint2Lines(lcdCard, line1, line2);
 }

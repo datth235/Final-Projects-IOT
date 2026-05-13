@@ -20,6 +20,12 @@ String normalizeUID(String text) {
   return text;
 }
 
+String normalizeUsername(String text) {
+  text.trim();
+  text.toLowerCase();
+  return text;
+}
+
 String uidToString(MFRC522::Uid* uid) {
   String text = "";
   for (byte i = 0; i < uid->size; i++) {
@@ -31,9 +37,13 @@ String uidToString(MFRC522::Uid* uid) {
 }
 
 String hexAddr(uint8_t addr) {
-  char buffer[6];
-  snprintf(buffer, sizeof(buffer), "0x%02X", addr);
-  return String(buffer);
+  char buf[6];
+  snprintf(buf, sizeof(buf), "0x%02X", addr);
+  return String(buf);
+}
+
+String moneyToText(int money) {
+  return String(money) + "d";
 }
 
 String jsonEscape(String text) {

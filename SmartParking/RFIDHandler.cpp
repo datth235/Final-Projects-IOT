@@ -8,28 +8,20 @@
 #include <SPI.h>
 #include <MFRC522.h>
 
-// ============================================================
-// BIEN TOAN CUC
-// ============================================================
-String lastUID   = "";
-String lastPlate = "";
+String lastUID    = "";
+String lastPlate  = "";
 String pendingUID = "";
+int    lastBalance = 0;
 
 static MFRC522       rfid(RFID_SS, RFID_RST);
 static String        lastProcessedUID   = "";
 static unsigned long lastProcessedUIDAt = 0;
 
-// ============================================================
-// SETUP
-// ============================================================
 void setupRFID() {
   SPI.begin();
   rfid.PCD_Init();
 }
 
-// ============================================================
-// HELPER
-// ============================================================
 static void finishRFIDRead() {
   rfid.PICC_HaltA();
   rfid.PCD_StopCrypto1();
@@ -46,11 +38,12 @@ static void rememberProcessedCard(const String& uid) {
 }
 
 // ============================================================
-// XU LY CHINH
+// XU LY RFID
+// ============================================================
 // Quy tac:
-//   inside = false => cho xe vao bai
-//   inside = true  => cho xe ra bai
-//   chua co => dat pendingUID de web dang ky
+//   LUOT RA  : the inside=true  -> KHONG can sieu am, tru EXIT_FEE
+//   LUOT VAO : the inside=false -> CAN sieu am <= RFID_ALLOW_CM
+//   THE MOI  : chua dang ky     -> CAN sieu am de tao pendingUID
 // ============================================================
 void processRFID() {
   if (!rfid.PICC_IsNewCardPresent()) return;
@@ -59,16 +52,7 @@ void processRFID() {
   String uid = uidToString(&rfid.uid);
 
   if (isSameCardCooldown(uid)) {
-    Serial.print("Bo qua the lap lai: ");
-    Serial.println(uid);
-    finishRFIDRead();
-    return;
-  }
-
-  if (!vehicleInScanZone()) {
-    setCardNotice("Dua xe vao", "<= 5.0cm moi quet", 1800);
-    Serial.println("Tu choi quet the: xe chua vao vung <= 5.0 cm.");
-    rememberProcessedCard(uid);
+    Serial.print("Bo qua the lap lai: "); Serial.println(uid);
     finishRFIDRead();
     return;
   }
@@ -78,39 +62,79 @@ void processRFID() {
 
   if (idx >= 0) {
     lastPlate  = cards[idx].plate;
+    lastBalance = cards[idx].balance;
     pendingUID = "";
 
+    // --- LUOT RA ---
     if (cards[idx].inside) {
-      // Xe ra
-      cards[idx].inside = false;
-      saveCardsToNVS();
-      openGate();
-      setCardNotice(lastPlate, "Xe ra - cong mo", 1800);
-      Serial.print("Xe ra khoi bai: ");
-      Serial.println(lastPlate);
-    } else {
-      // Xe vao
-      if (freeCount > 0) {
-        cards[idx].inside = true;
+      if (cards[idx].balance < EXIT_FEE) {
+        setCardNotice("So du khong du", "Nap tien tren web", 2000);
+        Serial.print("Tu choi xe ra do khong du tien: ");
+        Serial.print(cards[idx].plate);
+        Serial.print(" | So du: ");
+        Serial.println(cards[idx].balance);
+      } else {
+        cards[idx].balance -= EXIT_FEE;
+        cards[idx].inside   = false;
+        lastBalance         = cards[idx].balance;
         saveCardsToNVS();
         openGate();
-        setCardNotice(lastPlate, "Xe vao - cong mo", 1800);
-        Serial.print("Xe vao bai: ");
-        Serial.println(lastPlate);
-      } else {
-        setCardNotice(lastPlate, "Het cho trong", 1800);
-        Serial.print("Tu choi xe vao vi het cho: ");
-        Serial.println(lastPlate);
+        setCardNotice(cards[idx].plate, "Xe ra - tru 20k", 2000);
+        Serial.print("Xe ra khoi bai: ");
+        Serial.print(cards[idx].plate);
+        Serial.print(" | Tru phi: "); Serial.print(EXIT_FEE);
+        Serial.print(" | Con lai: "); Serial.println(cards[idx].balance);
       }
+      rememberProcessedCard(uid);
+      finishRFIDRead();
+      return;
     }
-  } else {
-    // The chua dang ky
-    lastPlate  = "CHUA DANG KY";
-    pendingUID = uid;
-    setCardNotice("The moi", "Nhap bien so web", 1800);
-    Serial.print("The moi, UID cho dang ky: ");
-    Serial.println(uid);
+
+    // --- LUOT VAO ---
+    if (!vehicleInScanZone()) {
+      setCardNotice("Xe vao can", "<= 5.0cm moi quet", 1800);
+      Serial.println("Tu choi vao: chua co xe o vung sieu am.");
+      rememberProcessedCard(uid);
+      finishRFIDRead();
+      return;
+    }
+
+    if (freeCount <= 0) {
+      setCardNotice(cards[idx].plate, "Het cho trong", 1800);
+      Serial.print("Tu choi xe vao vi het cho: "); Serial.println(cards[idx].plate);
+      rememberProcessedCard(uid);
+      finishRFIDRead();
+      return;
+    }
+
+    cards[idx].inside = true;
+    saveCardsToNVS();
+    openGate();
+    setCardNotice(cards[idx].plate, "Xe vao - cong mo", 1800);
+    Serial.print("Xe vao bai: "); Serial.println(cards[idx].plate);
+    lastBalance = cards[idx].balance;
+
+    rememberProcessedCard(uid);
+    finishRFIDRead();
+    return;
   }
+
+  // --- THE MOI ---
+  if (!vehicleInScanZone()) {
+    lastPlate  = "CHUA DANG KY";
+    lastBalance = 0;
+    setCardNotice("The moi can", "<= 5.0cm moi quet", 1800);
+    Serial.println("Tu choi the moi: chua co xe o vung sieu am.");
+    rememberProcessedCard(uid);
+    finishRFIDRead();
+    return;
+  }
+
+  lastPlate   = "CHUA DANG KY";
+  lastBalance = 0;
+  pendingUID  = uid;
+  setCardNotice("The moi", "Nhap bien so web", 1800);
+  Serial.print("The moi, UID cho dang ky: "); Serial.println(uid);
 
   rememberProcessedCard(uid);
   finishRFIDRead();

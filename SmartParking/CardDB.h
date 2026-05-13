@@ -1,44 +1,30 @@
 #pragma once
 #include "Config.h"
+#include <Arduino.h>
 
-// Mang the va so luong hien tai
 extern CardInfo cards[MAX_CARDS];
 extern int      cardCount;
 
-// Nap du lieu tu NVS khi khoi dong
+// NVS
 void loadCardsFromNVS();
-
-// Luu toan bo mang cards[] vao NVS
 void saveCardsToNVS();
 
-// Tim the theo UID, tra ve index hoac -1
-int findCardIndexByUID(const String& uid);
-
-// Tim the theo bien so, tra ve index hoac -1
-int findCardIndexByPlate(const String& plate);
-
-// Dem xe dang duoc danh dau la trong bai
-int countCarsInside();
-
-// Kiem tra lenh giua the va cam bien IR
+// Tim kiem
+int  findCardIndexByUID(const String& uid);
+int  findCardIndexByPlate(const String& plate);
+int  countCarsInside();
 bool trackingMismatch();
 
-// Tao ban ghi moi hoac cap nhat bien so (tra ve false neu loi)
-bool saveOrUpdateCard(const String& uid,
-                      const String& plate,
-                      String& err);
+// Validation
+bool isValidOwnerForCard(const String& ownerRaw, String& err);
 
-// Sua bien so cho mot UID cu the
-bool updateCardPlate(const String& uid,
-                     const String& plate,
-                     String& err);
+// CRUD
+bool saveOrUpdateCard(const String& uid, const String& plate, const String& ownerRaw, String& err);
+bool updateCardPlate(const String& uid, const String& plate, const String& ownerRaw, String& err);
+bool replaceCardUID(const String& oldUID, const String& newUID, String& err);
+bool setInsideState(const String& uid, bool inside, String& err);
+bool topUpBalance(const String& uid, int amount, String& err);
+bool deleteCardByUID(const String& uid, String& err);
 
-// Doi UID the cu sang UID the moi
-bool replaceCardUID(const String& oldUID,
-                    const String& newUID,
-                    String& err);
-
-// Dat trang thai trong / ngoai bai cho mot the
-bool setInsideState(const String& uid,
-                    bool inside,
-                    String& err);
+// Duoc goi boi UserDB khi xoa tai khoan
+void resetCardOwner(const String& username);
